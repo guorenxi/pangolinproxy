@@ -2,12 +2,13 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+# COPY package.json package-lock.json ./
+COPY package.json ./
+RUN npm install
 
 COPY . .
 
-RUN npx drizzle-kit generate --dialect sqlite --schema ./server/db/schema.ts --out init
+RUN npx drizzle-kit generate --dialect sqlite --schema ./server/db/schemas/ --out init
 
 RUN npm run build
 
@@ -16,10 +17,11 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 # Curl used for the health checks
-RUN apk add --no-cache curl 
+RUN apk add --no-cache curl
 
-COPY package.json package-lock.json ./
-RUN npm ci --only=production && npm cache clean --force
+# COPY package.json package-lock.json ./
+COPY package.json ./
+RUN npm install --only=production && npm cache clean --force
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
