@@ -4,20 +4,26 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Copy, Check } from "lucide-react";
 
+type CopyTextBoxProps = {
+    text?: string;
+    displayText?: string;
+    wrapText?: boolean;
+    outline?: boolean;
+};
+
 export default function CopyTextBox({
     text = "",
+    displayText,
     wrapText = false,
     outline = true
-}) {
+}: CopyTextBoxProps) {
     const [isCopied, setIsCopied] = useState(false);
     const textRef = useRef<HTMLPreElement>(null);
 
     const copyToClipboard = async () => {
         if (textRef.current) {
             try {
-                await navigator.clipboard.writeText(
-                    textRef.current.textContent || ""
-                );
+                await navigator.clipboard.writeText(text);
                 setIsCopied(true);
                 setTimeout(() => setIsCopied(false), 2000);
             } catch (err) {
@@ -32,19 +38,19 @@ export default function CopyTextBox({
         >
             <pre
                 ref={textRef}
-                className={`p-4 pr-16 text-sm w-full ${
+                className={`p-2 pr-16 text-sm w-full ${
                     wrapText
                         ? "whitespace-pre-wrap break-words"
                         : "overflow-x-auto"
                 }`}
             >
-                <code className="block w-full">{text}</code>
+                <code className="block w-full">{displayText || text}</code>
             </pre>
             <Button
-                variant="outline"
-                size="icon"
+                variant="ghost"
+                size="sm"
                 type="button"
-                className="absolute top-1 right-1 z-10 bg-card"
+                className="absolute top-0.5 right-0 z-10 bg-card"
                 onClick={copyToClipboard}
                 aria-label="Copy to clipboard"
             >

@@ -6,7 +6,8 @@ import { response as sendResponse } from "@server/lib";
 import config from "@server/lib/config";
 import db from "@server/db";
 import { count } from "drizzle-orm";
-import { users } from "@server/db/schema";
+import { users } from "@server/db/schemas";
+import license from "@server/license/license";
 
 export type IsSupporterKeyVisibleResponse = {
     visible: boolean;
@@ -25,6 +26,12 @@ export async function isSupporterKeyVisible(
         const key = config.getSupporterData();
 
         let visible = !hidden && key?.valid !== true;
+
+        const licenseStatus = await license.check();
+
+        if (licenseStatus.isLicenseValid) {
+            visible = false;
+        }
 
         if (key?.tier === "Limited Supporter") {
             const [numUsers] = await db.select({ count: count() }).from(users);

@@ -227,11 +227,11 @@ export default function CreateSiteForm({
                 mbIn:
                     data.type == "wireguard" || data.type == "newt"
                         ? "0 MB"
-                        : "--",
+                        : "-",
                 mbOut:
                     data.type == "wireguard" || data.type == "newt"
                         ? "0 MB"
-                        : "--",
+                        : "-",
                 orgId: orgId as string,
                 type: data.type as any,
                 online: false
@@ -291,7 +291,7 @@ PersistentKeepalive = 5`
                                 </FormControl>
                                 <FormMessage />
                                 <FormDescription>
-                                    This is the the display name for the site.
+                                    This is the display name for the site.
                                 </FormDescription>
                             </FormItem>
                         )}
