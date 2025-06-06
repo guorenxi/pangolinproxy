@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { roles, userOrgs } from "@server/db/schema";
+import { roles, userOrgs } from "@server/db";
 import { eq } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const deleteRoleSchema = z
     .object({
@@ -20,6 +21,24 @@ const deelteRoleBodySchema = z
         roleId: z.string().transform(Number).pipe(z.number().int().positive())
     })
     .strict();
+
+registry.registerPath({
+    method: "delete",
+    path: "/role/{roleId}",
+    description: "Delete a role.",
+    tags: [OpenAPITags.Role],
+    request: {
+        params: deleteRoleSchema,
+        body: {
+            content: {
+                "application/json": {
+                    schema: deelteRoleBodySchema
+                }
+            }
+        }
+    },
+    responses: {}
+});
 
 export async function deleteRole(
     req: Request,

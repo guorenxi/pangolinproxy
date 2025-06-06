@@ -28,7 +28,7 @@ import {
 } from "@app/components/Credenza";
 import { formatAxiosError } from "@app/lib/api";
 import { AxiosResponse } from "axios";
-import { Resource } from "@server/db/schema";
+import { Resource } from "@server/db";
 import {
     InputOTP,
     InputOTPGroup,
@@ -147,33 +147,33 @@ export default function SetResourcePincodeForm({
                                                         <InputOTPGroup className="flex">
                                                             <InputOTPSlot
                                                                 index={0}
+                                                                obscured
                                                             />
                                                             <InputOTPSlot
                                                                 index={1}
+                                                                obscured
                                                             />
                                                             <InputOTPSlot
                                                                 index={2}
+                                                                obscured
                                                             />
                                                             <InputOTPSlot
                                                                 index={3}
+                                                                obscured
                                                             />
                                                             <InputOTPSlot
                                                                 index={4}
+                                                                obscured
                                                             />
                                                             <InputOTPSlot
                                                                 index={5}
+                                                                obscured
                                                             />
                                                         </InputOTPGroup>
                                                     </InputOTP>
                                                 </div>
                                             </FormControl>
                                             <FormMessage />
-                                            <FormDescription>
-                                                Users will be able to access
-                                                this resource by entering this
-                                                PIN code. It must be at least 6
-                                                digits long.
-                                            </FormDescription>
                                         </FormItem>
                                     )}
                                 />

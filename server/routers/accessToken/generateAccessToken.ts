@@ -4,12 +4,12 @@ import {
     generateIdFromEntropySize,
     SESSION_COOKIE_EXPIRES
 } from "@server/auth/sessions/app";
-import db from "@server/db";
+import { db } from "@server/db";
 import {
     ResourceAccessToken,
     resourceAccessToken,
     resources
-} from "@server/db/schema";
+} from "@server/db";
 import HttpCode from "@server/types/HttpCode";
 import response from "@server/lib/response";
 import { eq } from "drizzle-orm";
@@ -20,6 +20,9 @@ import { fromError } from "zod-validation-error";
 import logger from "@server/logger";
 import { createDate, TimeSpan } from "oslo";
 import { hashPassword } from "@server/auth/password";
+import { encodeHexLowerCase } from "@oslojs/encoding";
+import { sha256 } from "@oslojs/crypto/sha2";
+import { OpenAPITags, registry } from "@server/openApi";
 
 export const generateAccessTokenBodySchema = z
     .object({
@@ -42,6 +45,24 @@ export type GenerateAccessTokenResponse = Omit<
     ResourceAccessToken,
     "tokenHash"
 > & { accessToken: string };
+
+registry.registerPath({
+    method: "post",
+    path: "/resource/{resourceId}/access-token",
+    description: "Generate a new access token for a resource.",
+    tags: [OpenAPITags.Resource, OpenAPITags.AccessToken],
+    request: {
+        params: generateAccssTokenParamsSchema,
+        body: {
+            content: {
+                "application/json": {
+                    schema: generateAccessTokenBodySchema
+                }
+            }
+        }
+    },
+    responses: {}
+});
 
 export async function generateAccessToken(
     req: Request,
@@ -90,11 +111,13 @@ export async function generateAccessToken(
             ? createDate(new TimeSpan(validForSeconds, "s")).getTime()
             : undefined;
 
-        const token = generateIdFromEntropySize(25);
+        const token = generateIdFromEntropySize(16);
 
-        const tokenHash = await hashPassword(token);
+        const tokenHash = encodeHexLowerCase(
+            sha256(new TextEncoder().encode(token))
+        );
 
-        const id = generateId(15);
+        const id = generateId(8);
         const [result] = await db
             .insert(resourceAccessToken)
             .values({

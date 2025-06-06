@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { userOrgs, userResources, users, userSites } from "@server/db/schema";
+import { userOrgs, userResources, users, userSites } from "@server/db";
 import { and, eq } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const removeUserSchema = z
     .object({
@@ -15,6 +16,17 @@ const removeUserSchema = z
         orgId: z.string()
     })
     .strict();
+
+registry.registerPath({
+    method: "delete",
+    path: "/org/{orgId}/user/{userId}",
+    description: "Remove a user from an organization.",
+    tags: [OpenAPITags.Org, OpenAPITags.User],
+    request: {
+        params: removeUserSchema
+    },
+    responses: {}
+});
 
 export async function removeUserOrg(
     req: Request,

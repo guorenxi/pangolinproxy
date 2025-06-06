@@ -1,9 +1,8 @@
 "use client";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowRight, InfoIcon, ShieldCheck, ShieldOff } from "lucide-react";
+import { InfoIcon, ShieldCheck, ShieldOff } from "lucide-react";
 import { useResourceContext } from "@app/hooks/useResourceContext";
-import { Separator } from "@app/components/ui/separator";
 import CopyToClipboard from "@app/components/CopyToClipboard";
 import {
     InfoSection,
@@ -11,12 +10,17 @@ import {
     InfoSections,
     InfoSectionTitle
 } from "@app/components/InfoSection";
-import Link from "next/link";
+import { createApiClient } from "@app/lib/api";
+import { useEnvContext } from "@app/hooks/useEnvContext";
+import { useDockerSocket } from "@app/hooks/useDockerSocket";
 
 type ResourceInfoBoxType = {};
 
 export default function ResourceInfoBox({}: ResourceInfoBoxType) {
-    const { resource, authInfo } = useResourceContext();
+    const { resource, authInfo, site } = useResourceContext();
+    const api = createApiClient(useEnvContext());
+
+    const { isEnabled, isAvailable } = useDockerSocket(site!);
 
     let fullUrl = `${resource.ssl ? "https" : "http"}://${resource.fullDomain}`;
 
@@ -27,7 +31,7 @@ export default function ResourceInfoBox({}: ResourceInfoBoxType) {
                 Resource Information
             </AlertTitle>
             <AlertDescription className="mt-4">
-                <InfoSections cols={3}>
+                <InfoSections cols={4}>
                     {resource.http ? (
                         <>
                             <InfoSection>
@@ -66,6 +70,24 @@ export default function ResourceInfoBox({}: ResourceInfoBoxType) {
                                     {resource.siteName}
                                 </InfoSectionContent>
                             </InfoSection>
+                            {/* {isEnabled && (
+                                <InfoSection>
+                                    <InfoSectionTitle>Socket</InfoSectionTitle>
+                                    <InfoSectionContent>
+                                        {isAvailable ? (
+                                            <span className="text-green-500 flex items-center space-x-2">
+                                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                                <span>Online</span>
+                                            </span>
+                                        ) : (
+                                            <span className="text-neutral-500 flex items-center space-x-2">
+                                                <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
+                                                <span>Offline</span>
+                                            </span>
+                                        )}
+                                    </InfoSectionContent>
+                                </InfoSection>
+                            )} */}
                         </>
                     ) : (
                         <>
@@ -88,6 +110,14 @@ export default function ResourceInfoBox({}: ResourceInfoBoxType) {
                             </InfoSection>
                         </>
                     )}
+                    <InfoSection>
+                        <InfoSectionTitle>Visibility</InfoSectionTitle>
+                        <InfoSectionContent>
+                            <span>
+                                {resource.enabled ? "Enabled" : "Disabled"}
+                            </span>
+                        </InfoSectionContent>
+                    </InfoSection>
                 </InfoSections>
             </AlertDescription>
         </Alert>

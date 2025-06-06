@@ -28,7 +28,7 @@ import {
 } from "@app/components/Credenza";
 import { formatAxiosError } from "@app/lib/api";
 import { AxiosResponse } from "axios";
-import { Resource } from "@server/db/schema";
+import { Resource } from "@server/db";
 import { createApiClient } from "@app/lib/api";
 import { useEnvContext } from "@app/hooks/useEnvContext";
 
@@ -140,12 +140,6 @@ export default function SetResourcePasswordForm({
                                                 />
                                             </FormControl>
                                             <FormMessage />
-                                            <FormDescription>
-                                                Users will be able to access
-                                                this resource by entering this
-                                                password. It must be at least 4
-                                                characters long.
-                                            </FormDescription>
                                         </FormItem>
                                     )}
                                 />

@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { Resource, resources, sites } from "@server/db/schema";
+import { Resource, resources, sites } from "@server/db";
 import { eq } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import { fromError } from "zod-validation-error";
 import logger from "@server/logger";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const getResourceSchema = z
     .object({
@@ -21,6 +22,17 @@ const getResourceSchema = z
 export type GetResourceResponse = Resource & {
     siteName: string;
 };
+
+registry.registerPath({
+    method: "get",
+    path: "/resource/{resourceId}",
+    description: "Get a resource.",
+    tags: [OpenAPITags.Resource],
+    request: {
+        params: getResourceSchema
+    },
+    responses: {}
+});
 
 export async function getResource(
     req: Request,

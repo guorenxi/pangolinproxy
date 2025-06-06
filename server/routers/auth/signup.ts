@@ -1,14 +1,14 @@
 import { NextFunction, Request, Response } from "express";
-import db from "@server/db";
+import { db } from "@server/db";
 import HttpCode from "@server/types/HttpCode";
 import { z } from "zod";
-import { users } from "@server/db/schema";
+import { users } from "@server/db";
 import { fromError } from "zod-validation-error";
 import createHttpError from "http-errors";
 import response from "@server/lib/response";
 import { SqliteError } from "better-sqlite3";
 import { sendEmailVerificationCode } from "../../auth/sendEmailVerificationCode";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import moment from "moment";
 import {
     createSession,
@@ -21,6 +21,7 @@ import logger from "@server/logger";
 import { hashPassword } from "@server/auth/password";
 import { checkValidInvite } from "@server/auth/checkValidInvite";
 import { passwordSchema } from "@server/auth/passwordSchema";
+import { UserType } from "@server/types/UserTypes";
 
 export const signupBodySchema = z.object({
     email: z
@@ -110,7 +111,9 @@ export async function signup(
         const existing = await db
             .select()
             .from(users)
-            .where(eq(users.email, email));
+            .where(
+                and(eq(users.email, email), eq(users.type, UserType.Internal))
+            );
 
         if (existing && existing.length > 0) {
             if (!config.getRawConfig().flags?.require_email_verification) {
@@ -157,6 +160,8 @@ export async function signup(
 
         await db.insert(users).values({
             userId: userId,
+            type: UserType.Internal,
+            username: email,
             email: email,
             passwordHash,
             dateCreated: moment().toISOString()

@@ -5,6 +5,8 @@ import * as resource from "./resource";
 import * as badger from "./badger";
 import * as auth from "@server/routers/auth";
 import * as supporterKey from "@server/routers/supporterKey";
+import * as license from "@server/routers/license";
+import * as idp from "@server/routers/idp";
 import HttpCode from "@server/types/HttpCode";
 import {
     verifyResourceAccess,
@@ -36,6 +38,12 @@ internalRouter.get(
     `/supporter-key/visible`,
     supporterKey.isSupporterKeyVisible
 );
+
+internalRouter.get(`/license/status`, license.getLicenseStatus);
+
+internalRouter.get("/idp", idp.listIdps);
+
+internalRouter.get("/idp/:idpId", idp.getIdp);
 
 // Gerbil routes
 const gerbilRouter = Router();

@@ -25,7 +25,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "@app/components/ui/input";
-import { Terminal, InfoIcon } from "lucide-react";
+import { InfoIcon, Terminal } from "lucide-react";
 import { Button } from "@app/components/ui/button";
 import CopyTextBox from "@app/components/CopyTextBox";
 import CopyToClipboard from "@app/components/CopyToClipboard";
@@ -35,7 +35,13 @@ import {
     InfoSections,
     InfoSectionTitle
 } from "@app/components/InfoSection";
-import { FaWindows, FaApple, FaFreebsd, FaDocker } from "react-icons/fa";
+import {
+    FaApple,
+    FaCubes,
+    FaDocker,
+    FaFreebsd,
+    FaWindows
+} from "react-icons/fa";
 import { Checkbox } from "@app/components/ui/checkbox";
 import { Alert, AlertDescription, AlertTitle } from "@app/components/ui/alert";
 import { generateKeypair } from "../[niceId]/wireguardConfig";
@@ -57,18 +63,17 @@ import {
     BreadcrumbSeparator
 } from "@app/components/ui/breadcrumb";
 import Link from "next/link";
+import { QRCodeCanvas } from "qrcode.react";
 
 const createSiteFormSchema = z
     .object({
         name: z
             .string()
-            .min(2, {
-                message: "Name must be at least 2 characters."
-            })
+            .min(2, { message: "Name must be at least 2 characters." })
             .max(30, {
                 message: "Name must not be longer than 30 characters."
             }),
-        method: z.string(),
+        method: z.enum(["newt", "wireguard", "local"]),
         copied: z.boolean()
     })
     .refine(
@@ -86,12 +91,33 @@ const createSiteFormSchema = z
 
 type CreateSiteFormValues = z.infer<typeof createSiteFormSchema>;
 
+type SiteType = "newt" | "wireguard" | "local";
+
+interface TunnelTypeOption {
+    id: SiteType;
+    title: string;
+    description: string;
+    disabled?: boolean;
+}
+
 type Commands = {
     mac: Record<string, string[]>;
     linux: Record<string, string[]>;
     windows: Record<string, string[]>;
     docker: Record<string, string[]>;
+    podman: Record<string, string[]>;
 };
+
+const platforms = [
+    "linux",
+    "docker",
+    "podman",
+    "mac",
+    "windows",
+    "freebsd"
+] as const;
+
+type Platform = (typeof platforms)[number];
 
 export default function Page() {
     const { env } = useEnvContext();
@@ -99,7 +125,9 @@ export default function Page() {
     const { orgId } = useParams();
     const router = useRouter();
 
-    const [tunnelTypes, setTunnelTypes] = useState<any>([
+    const [tunnelTypes, setTunnelTypes] = useState<
+        ReadonlyArray<TunnelTypeOption>
+    >([
         {
             id: "newt",
             title: "Newt Tunnel (Recommended)",
@@ -123,7 +151,7 @@ export default function Page() {
 
     const [loadingPage, setLoadingPage] = useState(true);
 
-    const [platform, setPlatform] = useState("linux");
+    const [platform, setPlatform] = useState<Platform>("linux");
     const [architecture, setArchitecture] = useState("amd64");
     const [commands, setCommands] = useState<Commands | null>(null);
 
@@ -229,7 +257,30 @@ PersistentKeepalive = 5`;
       - NEWT_SECRET=${secret}`
                 ],
                 "Docker Run": [
-                    `docker run -it fosrl/newt --id ${id} --secret ${secret} --endpoint ${endpoint}`
+                    `docker run -dit fosrl/newt --id ${id} --secret ${secret} --endpoint ${endpoint}`
+                ]
+            },
+            podman: {
+                "Podman Quadlet": [
+                    `[Unit]
+Description=Newt container
+
+[Container]
+ContainerName=newt
+Image=docker.io/fosrl/newt
+Environment=PANGOLIN_ENDPOINT=${endpoint}
+Environment=NEWT_ID=${id}
+Environment=NEWT_SECRET=${secret}
+# Secret=newt-secret,type=env,target=NEWT_SECRET
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target`
+                ],
+                "Podman Run": [
+                    `podman run -dit docker.io/fosrl/newt --id ${id} --secret ${secret} --endpoint ${endpoint}`
                 ]
             }
         };
@@ -246,6 +297,8 @@ PersistentKeepalive = 5`;
                 return ["x64"];
             case "docker":
                 return ["Docker Compose", "Docker Run"];
+            case "podman":
+                return ["Podman Quadlet", "Podman Run"];
             case "freebsd":
                 return ["amd64", "arm64"];
             default:
@@ -261,6 +314,8 @@ PersistentKeepalive = 5`;
                 return "macOS";
             case "docker":
                 return "Docker";
+            case "podman":
+                return "Podman";
             case "freebsd":
                 return "FreeBSD";
             default:
@@ -277,7 +332,7 @@ PersistentKeepalive = 5`;
 
         if (!platformCommands) {
             // get first key
-            const firstPlatform = Object.keys(commands)[0];
+            const firstPlatform = Object.keys(commands)[0] as Platform;
             platformCommands = commands[firstPlatform as keyof Commands];
 
             setPlatform(firstPlatform);
@@ -303,6 +358,8 @@ PersistentKeepalive = 5`;
                 return <FaApple className="h-4 w-4 mr-2" />;
             case "docker":
                 return <FaDocker className="h-4 w-4 mr-2" />;
+            case "podman":
+                return <FaCubes className="h-4 w-4 mr-2" />;
             case "freebsd":
                 return <FaFreebsd className="h-4 w-4 mr-2" />;
             default:
@@ -310,22 +367,15 @@ PersistentKeepalive = 5`;
         }
     };
 
-    const form = useForm({
+    const form = useForm<CreateSiteFormValues>({
         resolver: zodResolver(createSiteFormSchema),
-        defaultValues: {
-            name: "",
-            copied: false,
-            method: "newt"
-        }
+        defaultValues: { name: "", copied: false, method: "newt" }
     });
 
     async function onSubmit(data: CreateSiteFormValues) {
         setCreateLoading(true);
 
-        let payload: CreateSiteBody = {
-            name: data.name,
-            type: data.method
-        };
+        let payload: CreateSiteBody = { name: data.name, type: data.method };
 
         if (data.method == "wireguard") {
             if (!siteDefaults || !wgConfig) {
@@ -454,10 +504,7 @@ PersistentKeepalive = 5`;
 
                         setTunnelTypes((prev: any) => {
                             return prev.map((item: any) => {
-                                return {
-                                    ...item,
-                                    disabled: false
-                                };
+                                return { ...item, disabled: false };
                             });
                         });
                     }
@@ -471,20 +518,6 @@ PersistentKeepalive = 5`;
 
     return (
         <>
-            <div className="mb-4 flex-row">
-                <Breadcrumb>
-                    <BreadcrumbList>
-                        <BreadcrumbItem>
-                            <Link href="../">Sites</Link>
-                        </BreadcrumbItem>
-                        <BreadcrumbSeparator />
-                        <BreadcrumbItem>
-                            <BreadcrumbPage>Create Site</BreadcrumbPage>
-                        </BreadcrumbItem>
-                    </BreadcrumbList>
-                </Breadcrumb>
-            </div>
-
             <div className="flex justify-between">
                 <HeaderTitle
                     title="Create Site"
@@ -532,9 +565,8 @@ PersistentKeepalive = 5`;
                                                         </FormControl>
                                                         <FormMessage />
                                                         <FormDescription>
-                                                            This is the the
-                                                            display name for the
-                                                            site.
+                                                            This is the display
+                                                            name for the site.
                                                         </FormDescription>
                                                     </FormItem>
                                                 )}
@@ -558,12 +590,10 @@ PersistentKeepalive = 5`;
                             <SettingsSectionBody>
                                 <StrategySelect
                                     options={tunnelTypes}
-                                    defaultValue={
-                                        form.getValues("method") as string
-                                    }
-                                    onChange={(value) =>
-                                        form.setValue("method", value)
-                                    }
+                                    defaultValue={form.getValues("method")}
+                                    onChange={(value) => {
+                                        form.setValue("method", value);
+                                    }}
                                     cols={3}
                                 />
                             </SettingsSectionBody>
@@ -617,7 +647,7 @@ PersistentKeepalive = 5`;
                                             </InfoSection>
                                         </InfoSections>
 
-                                        <Alert variant="default" className="">
+                                        <Alert variant="neutral" className="">
                                             <InfoIcon className="h-4 w-4" />
                                             <AlertTitle className="font-semibold">
                                                 Save Your Credentials
@@ -689,13 +719,7 @@ PersistentKeepalive = 5`;
                                                 Operating System
                                             </p>
                                             <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                                                {[
-                                                    "linux",
-                                                    "docker",
-                                                    "mac",
-                                                    "windows",
-                                                    "freebsd"
-                                                ].map((os) => (
+                                                {platforms.map((os) => (
                                                     <Button
                                                         key={os}
                                                         variant={
@@ -717,7 +741,9 @@ PersistentKeepalive = 5`;
 
                                         <div>
                                             <p className="font-bold mb-3">
-                                                {platform === "docker"
+                                                {["docker", "podman"].includes(
+                                                    platform
+                                                )
                                                     ? "Method"
                                                     : "Architecture"}
                                             </p>
@@ -775,9 +801,21 @@ PersistentKeepalive = 5`;
                                     </SettingsSectionDescription>
                                 </SettingsSectionHeader>
                                 <SettingsSectionBody>
-                                    <CopyTextBox text={wgConfig} />
-
-                                    <Alert variant="default">
+                                    <div className="flex items-center gap-4">
+                                        <CopyTextBox text={wgConfig} />
+                                        <div
+                                            className={`relative w-fit border rounded-md`}
+                                        >
+                                            <div className="bg-white p-6 rounded-md">
+                                                <QRCodeCanvas
+                                                    value={wgConfig}
+                                                    size={168}
+                                                    className="mx-auto"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <Alert variant="neutral">
                                         <InfoIcon className="h-4 w-4" />
                                         <AlertTitle className="font-semibold">
                                             Save Your Credentials

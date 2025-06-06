@@ -8,13 +8,15 @@ import {
     roleResources,
     resourcePassword,
     resourcePincode
-} from "@server/db/schema";
+} from "@server/db";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import { sql, eq, or, inArray, and, count } from "drizzle-orm";
 import logger from "@server/logger";
 import stoi from "@server/lib/stoi";
+import { fromZodError } from "zod-validation-error";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const listResourcesParamsSchema = z
     .object({
@@ -66,7 +68,8 @@ function queryResources(
                 whitelist: resources.emailWhitelistEnabled,
                 http: resources.http,
                 protocol: resources.protocol,
-                proxyPort: resources.proxyPort
+                proxyPort: resources.proxyPort,
+                enabled: resources.enabled
             })
             .from(resources)
             .leftJoin(sites, eq(resources.siteId, sites.siteId))
@@ -99,7 +102,8 @@ function queryResources(
                 whitelist: resources.emailWhitelistEnabled,
                 http: resources.http,
                 protocol: resources.protocol,
-                proxyPort: resources.proxyPort
+                proxyPort: resources.proxyPort,
+                enabled: resources.enabled
             })
             .from(resources)
             .leftJoin(sites, eq(resources.siteId, sites.siteId))
@@ -125,6 +129,34 @@ export type ListResourcesResponse = {
     pagination: { total: number; limit: number; offset: number };
 };
 
+registry.registerPath({
+    method: "get",
+    path: "/site/{siteId}/resources",
+    description: "List resources for a site.",
+    tags: [OpenAPITags.Site, OpenAPITags.Resource],
+    request: {
+        params: z.object({
+            siteId: z.number()
+        }),
+        query: listResourcesSchema
+    },
+    responses: {}
+});
+
+registry.registerPath({
+    method: "get",
+    path: "/org/{orgId}/resources",
+    description: "List resources for an organization.",
+    tags: [OpenAPITags.Org, OpenAPITags.Resource],
+    request: {
+        params: z.object({
+            orgId: z.string()
+        }),
+        query: listResourcesSchema
+    },
+    responses: {}
+});
+
 export async function listResources(
     req: Request,
     res: Response,
@@ -136,7 +168,7 @@ export async function listResources(
             return next(
                 createHttpError(
                     HttpCode.BAD_REQUEST,
-                    parsedQuery.error.errors.map((e) => e.message).join(", ")
+                    fromZodError(parsedQuery.error)
                 )
             );
         }
@@ -147,13 +179,21 @@ export async function listResources(
             return next(
                 createHttpError(
                     HttpCode.BAD_REQUEST,
-                    parsedParams.error.errors.map((e) => e.message).join(", ")
+                    fromZodError(parsedParams.error)
                 )
             );
         }
-        const { siteId, orgId } = parsedParams.data;
+        const { siteId } = parsedParams.data;
 
-        if (orgId && orgId !== req.userOrgId) {
+        const orgId = parsedParams.data.orgId || req.userOrg?.orgId || req.apiKeyOrg?.orgId;
+
+        if (!orgId) {
+            return next(
+                createHttpError(HttpCode.BAD_REQUEST, "Invalid organization ID")
+            );
+        }
+
+        if (req.user && orgId && orgId !== req.userOrgId) {
             return next(
                 createHttpError(
                     HttpCode.FORBIDDEN,
@@ -162,7 +202,9 @@ export async function listResources(
             );
         }
 
-        const accessibleResources = await db
+        let accessibleResources;
+        if (req.user) {
+            accessibleResources = await db
             .select({
                 resourceId: sql<number>`COALESCE(${userResources.resourceId}, ${roleResources.resourceId})`
             })
@@ -177,6 +219,11 @@ export async function listResources(
                     eq(roleResources.roleId, req.userOrgRoleId!)
                 )
             );
+        } else {
+            accessibleResources = await db.select({
+                resourceId: resources.resourceId
+            }).from(resources).where(eq(resources.orgId, orgId));
+        }
 
         const accessibleResourceIds = accessibleResources.map(
             (resource) => resource.resourceId

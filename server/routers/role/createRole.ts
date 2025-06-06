@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { orgs, Role, roleActions, roles } from "@server/db/schema";
+import { orgs, Role, roleActions, roles } from "@server/db";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
@@ -9,6 +9,7 @@ import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
 import { ActionsEnum } from "@server/auth/actions";
 import { eq, and } from "drizzle-orm";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const createRoleParamsSchema = z
     .object({
@@ -32,6 +33,24 @@ export const defaultRoleAllowedActions: ActionsEnum[] = [
 export type CreateRoleBody = z.infer<typeof createRoleSchema>;
 
 export type CreateRoleResponse = Role;
+
+registry.registerPath({
+    method: "put",
+    path: "/org/{orgId}/role",
+    description: "Create a role.",
+    tags: [OpenAPITags.Org, OpenAPITags.Role],
+    request: {
+        params: createRoleParamsSchema,
+        body: {
+            content: {
+                "application/json": {
+                    schema: createRoleSchema
+                }
+            }
+        }
+    },
+    responses: {}
+});
 
 export async function createRole(
     req: Request,

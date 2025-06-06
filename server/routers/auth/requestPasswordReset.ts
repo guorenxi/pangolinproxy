@@ -5,7 +5,7 @@ import { fromError } from "zod-validation-error";
 import HttpCode from "@server/types/HttpCode";
 import { response } from "@server/lib";
 import { db } from "@server/db";
-import { passwordResetTokens, users } from "@server/db/schema";
+import { passwordResetTokens, users } from "@server/db";
 import { eq } from "drizzle-orm";
 import { alphabet, generateRandomString, sha256 } from "oslo/crypto";
 import { createDate } from "oslo";
@@ -74,7 +74,7 @@ export async function requestPasswordReset(
 
             await trx.insert(passwordResetTokens).values({
                 userId: existingUser[0].userId,
-                email: existingUser[0].email,
+                email: existingUser[0].email!,
                 tokenHash,
                 expiresAt: createDate(new TimeSpan(2, "h")).getTime()
             });

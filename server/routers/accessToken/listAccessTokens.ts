@@ -7,13 +7,15 @@ import {
     roleResources,
     resourceAccessToken,
     sites
-} from "@server/db/schema";
+} from "@server/db";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import { sql, eq, or, inArray, and, count, isNull, lt, gt } from "drizzle-orm";
 import logger from "@server/logger";
 import stoi from "@server/lib/stoi";
+import { fromZodError } from "zod-validation-error";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const listAccessTokensParamsSchema = z
     .object({
@@ -72,10 +74,7 @@ function queryAccessTokens(
                 resources,
                 eq(resourceAccessToken.resourceId, resources.resourceId)
             )
-            .leftJoin(
-                sites,
-                eq(resources.resourceId, sites.siteId)
-            )
+            .leftJoin(sites, eq(resources.resourceId, sites.siteId))
             .where(
                 and(
                     inArray(
@@ -97,10 +96,7 @@ function queryAccessTokens(
                 resources,
                 eq(resourceAccessToken.resourceId, resources.resourceId)
             )
-            .leftJoin(
-                sites,
-                eq(resources.resourceId, sites.siteId)
-            )
+            .leftJoin(sites, eq(resources.resourceId, sites.siteId))
             .where(
                 and(
                     inArray(
@@ -122,6 +118,34 @@ export type ListAccessTokensResponse = {
     pagination: { total: number; limit: number; offset: number };
 };
 
+registry.registerPath({
+    method: "get",
+    path: "/org/{orgId}/access-tokens",
+    description: "List all access tokens in an organization.",
+    tags: [OpenAPITags.Org, OpenAPITags.AccessToken],
+    request: {
+        params: z.object({
+            orgId: z.string()
+        }),
+        query: listAccessTokensSchema
+    },
+    responses: {}
+});
+
+registry.registerPath({
+    method: "get",
+    path: "/resource/{resourceId}/access-tokens",
+    description: "List all access tokens in an organization.",
+    tags: [OpenAPITags.Resource, OpenAPITags.AccessToken],
+    request: {
+        params: z.object({
+            resourceId: z.number()
+        }),
+        query: listAccessTokensSchema
+    },
+    responses: {}
+});
+
 export async function listAccessTokens(
     req: Request,
     res: Response,
@@ -133,7 +157,7 @@ export async function listAccessTokens(
             return next(
                 createHttpError(
                     HttpCode.BAD_REQUEST,
-                    parsedQuery.error.errors.map((e) => e.message).join(", ")
+                    fromZodError(parsedQuery.error)
                 )
             );
         }
@@ -144,13 +168,24 @@ export async function listAccessTokens(
             return next(
                 createHttpError(
                     HttpCode.BAD_REQUEST,
-                    parsedParams.error.errors.map((e) => e.message).join(", ")
+                    fromZodError(parsedParams.error)
                 )
             );
         }
-        const { orgId, resourceId } = parsedParams.data;
+        const { resourceId } = parsedParams.data;
 
-        if (orgId && orgId !== req.userOrgId) {
+        const orgId =
+            parsedParams.data.orgId ||
+            req.userOrg?.orgId ||
+            req.apiKeyOrg?.orgId;
+
+        if (!orgId) {
+            return next(
+                createHttpError(HttpCode.BAD_REQUEST, "Invalid organization ID")
+            );
+        }
+
+        if (req.user && orgId && orgId !== req.userOrgId) {
             return next(
                 createHttpError(
                     HttpCode.FORBIDDEN,
@@ -159,21 +194,29 @@ export async function listAccessTokens(
             );
         }
 
-        const accessibleResources = await db
-            .select({
-                resourceId: sql<number>`COALESCE(${userResources.resourceId}, ${roleResources.resourceId})`
-            })
-            .from(userResources)
-            .fullJoin(
-                roleResources,
-                eq(userResources.resourceId, roleResources.resourceId)
-            )
-            .where(
-                or(
-                    eq(userResources.userId, req.user!.userId),
-                    eq(roleResources.roleId, req.userOrgRoleId!)
+        let accessibleResources;
+        if (req.user) {
+            accessibleResources = await db
+                .select({
+                    resourceId: sql<number>`COALESCE(${userResources.resourceId}, ${roleResources.resourceId})`
+                })
+                .from(userResources)
+                .fullJoin(
+                    roleResources,
+                    eq(userResources.resourceId, roleResources.resourceId)
                 )
-            );
+                .where(
+                    or(
+                        eq(userResources.userId, req.user!.userId),
+                        eq(roleResources.roleId, req.userOrgRoleId!)
+                    )
+                );
+        } else {
+            accessibleResources = await db
+                .select({ resourceId: resources.resourceId })
+                .from(resources)
+                .where(eq(resources.orgId, orgId));
+        }
 
         const accessibleResourceIds = accessibleResources.map(
             (resource) => resource.resourceId

@@ -6,8 +6,8 @@ import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
 import { response as sendResponse } from "@server/lib";
 import { suppressDeprecationWarnings } from "moment";
-import { supporterKey } from "@server/db/schema";
-import db from "@server/db";
+import { supporterKey } from "@server/db";
+import { db } from "@server/db";
 import { eq } from "drizzle-orm";
 import config from "@server/lib/config";
 
@@ -44,7 +44,7 @@ export async function validateSupporterKey(
         const { githubUsername, key } = parsedBody.data;
 
         const response = await fetch(
-            "https://api.dev.fossorial.io/api/v1/license/validate",
+            "https://api.fossorial.io/api/v1/license/validate",
             {
                 method: "POST",
                 headers: {

@@ -5,7 +5,7 @@ import {
     validateResourceSessionToken
 } from "@server/auth/sessions/resource";
 import { verifyResourceAccessToken } from "@server/auth/verifyResourceAccessToken";
-import db from "@server/db";
+import { db } from "@server/db";
 import {
     Resource,
     ResourceAccessToken,
@@ -21,7 +21,7 @@ import {
     userOrgs,
     userResources,
     users
-} from "@server/db/schema";
+} from "@server/db";
 import config from "@server/lib/config";
 import { isIpInCidr } from "@server/lib/ip";
 import { response } from "@server/lib/response";
@@ -41,12 +41,13 @@ const cache = new NodeCache({
 
 const verifyResourceSessionSchema = z.object({
     sessions: z.record(z.string()).optional(),
+    headers: z.record(z.string()).optional(),
+    query: z.record(z.string()).optional(),
     originalRequestURL: z.string().url(),
     scheme: z.string(),
     host: z.string(),
     path: z.string(),
     method: z.string(),
-    accessToken: z.string().optional(),
     tls: z.boolean(),
     requestIp: z.string().optional()
 });
@@ -55,9 +56,16 @@ export type VerifyResourceSessionSchema = z.infer<
     typeof verifyResourceSessionSchema
 >;
 
+type BasicUserData = {
+    username: string;
+    email: string | null;
+    name: string | null;
+};
+
 export type VerifyUserResponse = {
     valid: boolean;
     redirectUrl?: string;
+    userData?: BasicUserData;
 };
 
 export async function verifyResourceSession(
@@ -85,10 +93,32 @@ export async function verifyResourceSession(
             originalRequestURL,
             requestIp,
             path,
-            accessToken: token
+            headers,
+            query
         } = parsedBody.data;
 
-        const clientIp = requestIp?.split(":")[0];
+        const clientIp = requestIp
+            ? (() => {
+                  logger.debug("Request IP:", { requestIp });
+                  if (requestIp.startsWith("[") && requestIp.includes("]")) {
+                      // if brackets are found, extract the IPv6 address from between the brackets
+                      const ipv6Match = requestIp.match(/\[(.*?)\]/);
+                      if (ipv6Match) {
+                          return ipv6Match[1];
+                      }
+                  }
+
+                  // ivp4
+                  // split at last colon
+                  const lastColonIndex = requestIp.lastIndexOf(":");
+                  if (lastColonIndex !== -1) {
+                      return requestIp.substring(0, lastColonIndex);
+                  }
+                  return requestIp;
+              })()
+            : undefined;
+
+        logger.debug("Client IP:", { clientIp });
 
         let cleanHost = host;
         // if the host ends with :443 or :80 remove it
@@ -183,12 +213,33 @@ export async function verifyResourceSession(
             resource.resourceId
         )}?redirect=${encodeURIComponent(originalRequestURL)}`;
 
-        // check for access token
-        let validAccessToken: ResourceAccessToken | undefined;
-        if (token) {
-            const [accessTokenId, accessToken] = token.split(".");
+        // check for access token in headers
+        if (
+            headers &&
+            headers[
+                config.getRawConfig().server.resource_access_token_headers.id
+            ] &&
+            headers[
+                config.getRawConfig().server.resource_access_token_headers.token
+            ]
+        ) {
+            const accessTokenId =
+                headers[
+                    config.getRawConfig().server.resource_access_token_headers
+                        .id
+                ];
+            const accessToken =
+                headers[
+                    config.getRawConfig().server.resource_access_token_headers
+                        .token
+                ];
+
             const { valid, error, tokenItem } = await verifyResourceAccessToken(
-                { resource, accessTokenId, accessToken }
+                {
+                    accessToken,
+                    accessTokenId,
+                    resourceId: resource.resourceId
+                }
             );
 
             if (error) {
@@ -206,15 +257,43 @@ export async function verifyResourceSession(
             }
 
             if (valid && tokenItem) {
-                validAccessToken = tokenItem;
+                return allowed(res);
+            }
+        }
 
-                if (!sessions) {
-                    return await createAccessTokenSession(
-                        res,
-                        resource,
-                        tokenItem
+        if (
+            query &&
+            query[config.getRawConfig().server.resource_access_token_param]
+        ) {
+            const token =
+                query[config.getRawConfig().server.resource_access_token_param];
+
+            const [accessTokenId, accessToken] = token.split(".");
+
+            const { valid, error, tokenItem } = await verifyResourceAccessToken(
+                {
+                    accessToken,
+                    accessTokenId,
+                    resourceId: resource.resourceId
+                }
+            );
+
+            if (error) {
+                logger.debug("Access token invalid: " + error);
+            }
+
+            if (!valid) {
+                if (config.getRawConfig().app.log_failed_attempts) {
+                    logger.info(
+                        `Resource access token is invalid. Resource ID: ${
+                            resource.resourceId
+                        }. IP: ${clientIp}.`
                     );
                 }
+            }
+
+            if (valid && tokenItem) {
+                return allowed(res);
             }
         }
 
@@ -299,36 +378,29 @@ export async function verifyResourceSession(
                         resourceSession.userSessionId
                     }:${resource.resourceId}`;
 
-                    let isAllowed: boolean | undefined =
+                    let allowedUserData: BasicUserData | null | undefined =
                         cache.get(userAccessCacheKey);
 
-                    if (isAllowed === undefined) {
-                        isAllowed = await isUserAllowedToAccessResource(
+                    if (allowedUserData === undefined) {
+                        allowedUserData = await isUserAllowedToAccessResource(
                             resourceSession.userSessionId,
                             resource
                         );
 
-                        cache.set(userAccessCacheKey, isAllowed);
+                        cache.set(userAccessCacheKey, allowedUserData);
                     }
 
-                    if (isAllowed) {
+                    if (
+                        allowedUserData !== null &&
+                        allowedUserData !== undefined
+                    ) {
                         logger.debug(
                             "Resource allowed because user session is valid"
                         );
-                        return allowed(res);
+                        return allowed(res, allowedUserData);
                     }
                 }
             }
-        }
-
-        // At this point we have checked all sessions, but since the access token is
-        // valid, we should allow access and create a new session.
-        if (validAccessToken) {
-            return await createAccessTokenSession(
-                res,
-                resource,
-                validAccessToken
-            );
         }
 
         logger.debug("No more auth to check, resource not allowed");
@@ -360,8 +432,7 @@ function extractResourceSessionToken(
         ssl ? "_s" : ""
     }`;
 
-    const all: { cookieName: string; token: string; priority: number }[] =
-        [];
+    const all: { cookieName: string; token: string; priority: number }[] = [];
 
     for (const [key, value] of Object.entries(sessions)) {
         const parts = key.split(".");
@@ -408,15 +479,17 @@ function notAllowed(res: Response, redirectUrl?: string) {
     return response<VerifyUserResponse>(res, data);
 }
 
-function allowed(res: Response) {
+function allowed(res: Response, userData?: BasicUserData) {
     const data = {
-        data: { valid: true },
+        data:
+            userData !== undefined && userData !== null
+                ? { valid: true, ...userData }
+                : { valid: true },
         success: true,
         error: false,
         message: "Access allowed",
         status: HttpCode.OK
     };
-    logger.debug(JSON.stringify(data));
     return response<VerifyUserResponse>(res, data);
 }
 
@@ -456,7 +529,7 @@ async function createAccessTokenSession(
 async function isUserAllowedToAccessResource(
     userSessionId: string,
     resource: Resource
-): Promise<boolean> {
+): Promise<BasicUserData | null> {
     const [res] = await db
         .select()
         .from(sessions)
@@ -467,14 +540,14 @@ async function isUserAllowedToAccessResource(
     const session = res.session;
 
     if (!user || !session) {
-        return false;
+        return null;
     }
 
     if (
         config.getRawConfig().flags?.require_email_verification &&
         !user.emailVerified
     ) {
-        return false;
+        return null;
     }
 
     const userOrgRole = await db
@@ -489,7 +562,7 @@ async function isUserAllowedToAccessResource(
         .limit(1);
 
     if (userOrgRole.length === 0) {
-        return false;
+        return null;
     }
 
     const roleResourceAccess = await db
@@ -504,7 +577,11 @@ async function isUserAllowedToAccessResource(
         .limit(1);
 
     if (roleResourceAccess.length > 0) {
-        return true;
+        return {
+            username: user.username,
+            email: user.email,
+            name: user.name
+        };
     }
 
     const userResourceAccess = await db
@@ -519,10 +596,14 @@ async function isUserAllowedToAccessResource(
         .limit(1);
 
     if (userResourceAccess.length > 0) {
-        return true;
+        return {
+            username: user.username,
+            email: user.email,
+            name: user.name
+        };
     }
 
-    return false;
+    return null;
 }
 
 async function checkRules(

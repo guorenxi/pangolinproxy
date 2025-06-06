@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { newts, newtSessions, sites } from "@server/db/schema";
+import { newts, newtSessions, sites } from "@server/db";
 import { eq } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
@@ -10,12 +10,24 @@ import logger from "@server/logger";
 import { deletePeer } from "../gerbil/peers";
 import { fromError } from "zod-validation-error";
 import { sendToClient } from "../ws";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const deleteSiteSchema = z
     .object({
         siteId: z.string().transform(Number).pipe(z.number().int().positive())
     })
     .strict();
+
+registry.registerPath({
+    method: "delete",
+    path: "/site/{siteId}",
+    description: "Delete a site and all its associated data.",
+    tags: [OpenAPITags.Site],
+    request: {
+        params: deleteSiteSchema
+    },
+    responses: {}
+});
 
 export async function deleteSite(
     req: Request,
