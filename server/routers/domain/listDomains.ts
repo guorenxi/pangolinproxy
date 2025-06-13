@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { domains, orgDomains, users } from "@server/db/schema";
+import { domains, orgDomains, users } from "@server/db";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import { eq, sql } from "drizzle-orm";
 import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const listDomainsParamsSchema = z
     .object({
@@ -51,6 +52,20 @@ export type ListDomainsResponse = {
     pagination: { total: number; limit: number; offset: number };
 };
 
+registry.registerPath({
+    method: "get",
+    path: "/org/{orgId}/domains",
+    description: "List all domains for a organization.",
+    tags: [OpenAPITags.Org],
+    request: {
+        params: z.object({
+            orgId: z.string()
+        }),
+        query: listDomainsSchema
+    },
+    responses: {}
+});
+
 export async function listDomains(
     req: Request,
     res: Response,
@@ -80,15 +95,15 @@ export async function listDomains(
 
         const { orgId } = parsedParams.data;
 
-        const domains = await queryDomains(orgId.toString(), limit, offset);
+        const domainsList = await queryDomains(orgId.toString(), limit, offset);
 
         const [{ count }] = await db
             .select({ count: sql<number>`count(*)` })
-            .from(users);
+            .from(domains);
 
         return response<ListDomainsResponse>(res, {
             data: {
-                domains,
+                domains: domainsList,
                 pagination: {
                     total: count,
                     limit,

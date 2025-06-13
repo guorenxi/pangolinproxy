@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { newts, resources, sites, targets } from "@server/db/schema";
+import { newts, resources, sites, targets } from "@server/db";
 import { eq } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
@@ -11,6 +11,7 @@ import { fromError } from "zod-validation-error";
 import { addPeer } from "../gerbil/peers";
 import { removeTargets } from "../newt/targets";
 import { getAllowedIps } from "../target/helpers";
+import { OpenAPITags, registry } from "@server/openApi";
 
 // Define Zod schema for request parameters validation
 const deleteResourceSchema = z
@@ -21,6 +22,17 @@ const deleteResourceSchema = z
             .pipe(z.number().int().positive())
     })
     .strict();
+
+registry.registerPath({
+    method: "delete",
+    path: "/resource/{resourceId}",
+    description: "Delete a resource.",
+    tags: [OpenAPITags.Resource],
+    request: {
+        params: deleteResourceSchema
+    },
+    responses: {}
+});
 
 export async function deleteResource(
     req: Request,
@@ -88,7 +100,11 @@ export async function deleteResource(
                     .where(eq(newts.siteId, site.siteId))
                     .limit(1);
 
-                removeTargets(newt.newtId, targetsToBeRemoved, deletedResource.protocol);
+                removeTargets(
+                    newt.newtId,
+                    targetsToBeRemoved,
+                    deletedResource.protocol
+                );
             }
         }
 

@@ -4,7 +4,7 @@ import HttpCode from "@server/types/HttpCode";
 import { fromError } from "zod-validation-error";
 import { z } from "zod";
 import { db } from "@server/db";
-import { User, users } from "@server/db/schema";
+import { User, users } from "@server/db";
 import { eq } from "drizzle-orm";
 import { response } from "@server/lib";
 import {
@@ -16,6 +16,7 @@ import logger from "@server/logger";
 import { unauthorized } from "@server/auth/unauthorizedResponse";
 import { invalidateAllSessions } from "@server/auth/sessions/app";
 import { passwordSchema } from "@server/auth/passwordSchema";
+import { UserType } from "@server/types/UserTypes";
 
 export const changePasswordBody = z
     .object({
@@ -50,6 +51,15 @@ export async function changePassword(
     const { newPassword, oldPassword, code } = parsedBody.data;
     const user = req.user as User;
 
+    if (user.type !== UserType.Internal) {
+        return next(
+            createHttpError(
+                HttpCode.BAD_REQUEST,
+                "Two-factor authentication is not supported for external users"
+            )
+        );
+    }
+
     try {
         if (newPassword === oldPassword) {
             return next(
@@ -62,7 +72,7 @@ export async function changePassword(
 
         const validPassword = await verifyPassword(
             oldPassword,
-            user.passwordHash
+            user.passwordHash!
         );
         if (!validPassword) {
             return next(unauthorized());

@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { userResources } from "@server/db/schema";
+import { userResources } from "@server/db";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
 import { eq } from "drizzle-orm";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const setUserResourcesBodySchema = z
     .object({
@@ -23,6 +24,25 @@ const setUserResourcesParamsSchema = z
             .pipe(z.number().int().positive())
     })
     .strict();
+
+registry.registerPath({
+    method: "post",
+    path: "/resource/{resourceId}/users",
+    description:
+        "Set users for a resource. This will replace all existing users.",
+    tags: [OpenAPITags.Resource, OpenAPITags.User],
+    request: {
+        params: setUserResourcesParamsSchema,
+        body: {
+            content: {
+                "application/json": {
+                    schema: setUserResourcesBodySchema
+                }
+            }
+        }
+    },
+    responses: {}
+});
 
 export async function setResourceUsers(
     req: Request,

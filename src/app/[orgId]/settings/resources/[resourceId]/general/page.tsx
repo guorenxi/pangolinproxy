@@ -48,7 +48,7 @@ import { useOrgContext } from "@app/hooks/useOrgContext";
 import CustomDomainInput from "../CustomDomainInput";
 import { createApiClient } from "@app/lib/api";
 import { useEnvContext } from "@app/hooks/useEnvContext";
-import { subdomainSchema } from "@server/lib/schemas";
+import { subdomainSchema, tlsNameSchema } from "@server/lib/schemas";
 import { CaretSortIcon, CheckIcon } from "@radix-ui/react-icons";
 import { RadioGroup, RadioGroupItem } from "@app/components/ui/radio-group";
 import { Label } from "@app/components/ui/label";
@@ -60,7 +60,11 @@ import {
     SelectTrigger,
     SelectValue
 } from "@app/components/ui/select";
-import { UpdateResourceResponse } from "@server/routers/resource";
+import {
+    UpdateResourceResponse,
+    updateResourceRule
+} from "@server/routers/resource";
+import { SwitchInput } from "@app/components/SwitchInput";
 
 const GeneralFormSchema = z
     .object({
@@ -275,9 +279,52 @@ export default function GeneralForm() {
         setTransferLoading(false);
     }
 
+    async function toggleResourceEnabled(val: boolean) {
+        const res = await api
+            .post<AxiosResponse<UpdateResourceResponse>>(
+                `resource/${resource.resourceId}`,
+                {
+                    enabled: val
+                }
+            )
+            .catch((e) => {
+                toast({
+                    variant: "destructive",
+                    title: "Failed to toggle resource",
+                    description: formatAxiosError(
+                        e,
+                        "An error occurred while updating the resource"
+                    )
+                });
+            });
+
+        updateResource({
+            enabled: val
+        });
+    }
+
     return (
         !loadingPage && (
             <SettingsContainer>
+                <SettingsSection>
+                    <SettingsSectionHeader>
+                        <SettingsSectionTitle>Visibility</SettingsSectionTitle>
+                        <SettingsSectionDescription>
+                            Completely enable or disable resource visibility
+                        </SettingsSectionDescription>
+                    </SettingsSectionHeader>
+                    <SettingsSectionBody>
+                        <SwitchInput
+                            id="enable-resource"
+                            label="Enable Resource"
+                            defaultChecked={resource.enabled}
+                            onCheckedChange={async (val) => {
+                                await toggleResourceEnabled(val);
+                            }}
+                        />
+                    </SettingsSectionBody>
+                </SettingsSection>
+
                 <SettingsSection>
                     <SettingsSectionHeader>
                         <SettingsSectionTitle>
@@ -549,7 +596,7 @@ export default function GeneralForm() {
                             disabled={saveLoading}
                             form="general-settings-form"
                         >
-                            Save Settings
+                            Save General Settings
                         </Button>
                     </SettingsSectionFooter>
                 </SettingsSection>

@@ -27,6 +27,7 @@ import { formatAxiosError } from "@app/lib/api";
 import { createApiClient } from "@app/lib/api";
 import { useEnvContext } from "@app/hooks/useEnvContext";
 import CreateSiteFormModal from "./CreateSiteModal";
+import { parseDataSize } from '@app/lib/dataSize';
 
 export type SiteRow = {
     id: number;
@@ -47,7 +48,6 @@ type SitesTableProps = {
 export default function SitesTable({ sites, orgId }: SitesTableProps) {
     const router = useRouter();
 
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [selectedSite, setSelectedSite] = useState<SiteRow | null>(null);
     const [rows, setRows] = useState<SiteRow[]>(sites);
@@ -164,7 +164,7 @@ export default function SitesTable({ sites, orgId }: SitesTableProps) {
                         );
                     }
                 } else {
-                    return <span>--</span>;
+                    return <span>-</span>;
                 }
             }
         },
@@ -198,7 +198,9 @@ export default function SitesTable({ sites, orgId }: SitesTableProps) {
                         <ArrowUpDown className="ml-2 h-4 w-4" />
                     </Button>
                 );
-            }
+            },
+            sortingFn: (rowA, rowB) => 
+                parseDataSize(rowA.original.mbIn) - parseDataSize(rowB.original.mbIn)
         },
         {
             accessorKey: "mbOut",
@@ -214,7 +216,9 @@ export default function SitesTable({ sites, orgId }: SitesTableProps) {
                         <ArrowUpDown className="ml-2 h-4 w-4" />
                     </Button>
                 );
-            }
+            },
+            sortingFn: (rowA, rowB) =>
+                parseDataSize(rowA.original.mbOut) - parseDataSize(rowB.original.mbOut),
         },
         {
             accessorKey: "type",
@@ -281,15 +285,6 @@ export default function SitesTable({ sites, orgId }: SitesTableProps) {
 
     return (
         <>
-            <CreateSiteFormModal
-                open={isCreateModalOpen}
-                setOpen={setIsCreateModalOpen}
-                onCreate={(val) => {
-                    setRows([val, ...rows]);
-                }}
-                orgId={orgId}
-            />
-
             {selectedSite && (
                 <ConfirmDeleteDialog
                     open={isDeleteModalOpen}
@@ -330,9 +325,9 @@ export default function SitesTable({ sites, orgId }: SitesTableProps) {
             <SitesDataTable
                 columns={columns}
                 data={rows}
-                addSite={() => {
-                    router.push(`/${orgId}/settings/sites/create`);
-                }}
+                createSite={() =>
+                    router.push(`/${orgId}/settings/sites/create`)
+                }
             />
         </>
     );

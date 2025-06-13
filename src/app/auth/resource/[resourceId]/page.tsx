@@ -13,6 +13,10 @@ import ResourceNotFound from "./ResourceNotFound";
 import ResourceAccessDenied from "./ResourceAccessDenied";
 import AccessToken from "./AccessToken";
 import { pullEnv } from "@app/lib/pullEnv";
+import { LoginFormIDP } from "@app/components/LoginForm";
+import { ListIdpsResponse } from "@server/routers/idp";
+
+export const dynamic = "force-dynamic";
 
 export default async function ResourceAuthPage(props: {
     params: Promise<{ resourceId: number }>;
@@ -84,7 +88,6 @@ export default async function ResourceAuthPage(props: {
         redirect(redirectUrl);
     }
 
-
     // convert the dashboard token into a resource session token
     let userIsUnauthorized = false;
     if (user && authInfo.sso) {
@@ -118,18 +121,23 @@ export default async function ResourceAuthPage(props: {
     }
 
     if (searchParams.token) {
-        const [accessTokenId, accessToken] = searchParams.token.split(".");
         return (
             <div className="w-full max-w-md">
                 <AccessToken
-                    accessToken={accessToken}
-                    accessTokenId={accessTokenId}
+                    token={searchParams.token}
                     resourceId={params.resourceId}
-                    redirectUrl={redirectUrl}
                 />
             </div>
         );
     }
+
+    const idpsRes = await cache(
+        async () => await priv.get<AxiosResponse<ListIdpsResponse>>("/idp")
+    )();
+    const loginIdps = idpsRes.data.data.idps.map((idp) => ({
+        idpId: idp.idpId,
+        name: idp.name
+    })) as LoginFormIDP[];
 
     return (
         <>
@@ -151,6 +159,7 @@ export default async function ResourceAuthPage(props: {
                             id: authInfo.resourceId
                         }}
                         redirect={redirectUrl}
+                        idps={loginIdps}
                     />
                 </div>
             )}

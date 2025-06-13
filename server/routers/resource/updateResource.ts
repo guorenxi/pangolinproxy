@@ -8,7 +8,7 @@ import {
     orgs,
     Resource,
     resources
-} from "@server/db/schema";
+} from "@server/db";
 import { eq, and } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
@@ -16,7 +16,10 @@ import createHttpError from "http-errors";
 import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
 import config from "@server/lib/config";
+import { tlsNameSchema } from "@server/lib/schemas";
 import { subdomainSchema } from "@server/lib/schemas";
+import { registry } from "@server/openApi";
+import { OpenAPITags } from "@server/openApi";
 
 const updateResourceParamsSchema = z
     .object({
@@ -39,7 +42,11 @@ const updateHttpResourceBodySchema = z
         emailWhitelistEnabled: z.boolean().optional(),
         isBaseDomain: z.boolean().optional(),
         applyRules: z.boolean().optional(),
-        domainId: z.string().optional()
+        domainId: z.string().optional(),
+        enabled: z.boolean().optional(),
+        stickySession: z.boolean().optional(),
+        tlsServerName: z.string().nullable().optional(),
+        setHostHeader: z.string().nullable().optional()
     })
     .strict()
     .refine((data) => Object.keys(data).length > 0, {
@@ -66,6 +73,30 @@ const updateHttpResourceBodySchema = z
         {
             message: "Base domain resources are not allowed"
         }
+    )
+    .refine(
+        (data) => {
+            if (data.tlsServerName) {
+                return tlsNameSchema.safeParse(data.tlsServerName).success;
+            }
+            return true;
+        },
+        {
+            message:
+                "Invalid TLS Server Name. Use domain name format, or save empty to remove the TLS Server Name."
+        }
+    )
+    .refine(
+        (data) => {
+            if (data.setHostHeader) {
+                return tlsNameSchema.safeParse(data.setHostHeader).success;
+            }
+            return true;
+        },
+        {
+            message:
+                "Invalid custom Host Header value. Use domain name format, or save empty to unset custom Host Header."
+        }
     );
 
 export type UpdateResourceResponse = Resource;
@@ -73,7 +104,9 @@ export type UpdateResourceResponse = Resource;
 const updateRawResourceBodySchema = z
     .object({
         name: z.string().min(1).max(255).optional(),
-        proxyPort: z.number().int().min(1).max(65535).optional()
+        proxyPort: z.number().int().min(1).max(65535).optional(),
+        stickySession: z.boolean().optional(),
+        enabled: z.boolean().optional()
     })
     .strict()
     .refine((data) => Object.keys(data).length > 0, {
@@ -90,6 +123,26 @@ const updateRawResourceBodySchema = z
         },
         { message: "Cannot update proxyPort" }
     );
+
+registry.registerPath({
+    method: "post",
+    path: "/resource/{resourceId}",
+    description: "Update a resource.",
+    tags: [OpenAPITags.Resource],
+    request: {
+        params: updateResourceParamsSchema,
+        body: {
+            content: {
+                "application/json": {
+                    schema: updateHttpResourceBodySchema.and(
+                        updateRawResourceBodySchema
+                    )
+                }
+            }
+        }
+    },
+    responses: {}
+});
 
 export async function updateResource(
     req: Request,
@@ -253,7 +306,22 @@ async function updateHttpResource(
 
     const updatedResource = await db
         .update(resources)
-        .set(updatePayload)
+        .set({
+            name: updatePayload.name,
+            subdomain: updatePayload.subdomain,
+            ssl: updatePayload.ssl,
+            sso: updatePayload.sso,
+            blockAccess: updatePayload.blockAccess,
+            emailWhitelistEnabled: updatePayload.emailWhitelistEnabled,
+            isBaseDomain: updatePayload.isBaseDomain,
+            applyRules: updatePayload.applyRules,
+            domainId: updatePayload.domainId,
+            enabled: updatePayload.enabled,
+            stickySession: updatePayload.stickySession,
+            tlsServerName: updatePayload.tlsServerName,
+            setHostHeader: updatePayload.setHostHeader,
+            fullDomain: updatePayload.fullDomain
+        })
         .where(eq(resources.resourceId, resource.resourceId))
         .returning();
 

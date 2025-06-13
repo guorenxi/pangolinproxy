@@ -2,24 +2,28 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# COPY package.json package-lock.json ./
+COPY package*.json ./
 RUN npm ci
 
 COPY . .
 
-RUN npx drizzle-kit generate --dialect sqlite --schema ./server/db/schema.ts --out init
+RUN echo 'export * from "./sqlite";' > server/db/index.ts
 
-RUN npm run build
+RUN npx drizzle-kit generate --dialect sqlite --schema ./server/db/sqlite/schema.ts --out init
+
+RUN npm run build:sqlite
 
 FROM node:20-alpine AS runner
 
 WORKDIR /app
 
 # Curl used for the health checks
-RUN apk add --no-cache curl 
+RUN apk add --no-cache curl
 
-COPY package.json package-lock.json ./
-RUN npm ci --only=production && npm cache clean --force
+# COPY package.json package-lock.json ./
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
@@ -30,4 +34,4 @@ COPY server/db/names.json ./dist/names.json
 
 COPY public ./public
 
-CMD ["npm", "start"]
+CMD ["npm", "run", "start:sqlite"]

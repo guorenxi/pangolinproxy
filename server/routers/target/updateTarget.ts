@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { newts, resources, sites, targets } from "@server/db/schema";
+import { newts, resources, sites, targets } from "@server/db";
 import { eq } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
@@ -12,6 +12,7 @@ import { addPeer } from "../gerbil/peers";
 import { addTargets } from "../newt/targets";
 import { pickPort } from "./helpers";
 import { isTargetValid } from "@server/lib/validators";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const updateTargetParamsSchema = z
     .object({
@@ -30,6 +31,24 @@ const updateTargetBodySchema = z
     .refine((data) => Object.keys(data).length > 0, {
         message: "At least one field must be provided for update"
     });
+
+registry.registerPath({
+    method: "post",
+    path: "/target/{targetId}",
+    description: "Update a target.",
+    tags: [OpenAPITags.Target],
+    request: {
+        params: updateTargetParamsSchema,
+        body: {
+            content: {
+                "application/json": {
+                    schema: updateTargetBodySchema
+                }
+            }
+        }
+    },
+    responses: {}
+});
 
 export async function updateTarget(
     req: Request,

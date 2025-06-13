@@ -6,6 +6,11 @@ import DashboardLoginForm from "./DashboardLoginForm";
 import { Mail } from "lucide-react";
 import { pullEnv } from "@app/lib/pullEnv";
 import { cleanRedirect } from "@app/lib/cleanRedirect";
+import { idp } from "@server/db";
+import { LoginFormIDP } from "@app/components/LoginForm";
+import { priv } from "@app/lib/api";
+import { AxiosResponse } from "axios";
+import { ListIdpsResponse } from "@server/routers/idp";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +36,18 @@ export default async function Page(props: {
         redirectUrl = cleanRedirect(searchParams.redirect as string);
     }
 
+    const idpsRes = await cache(
+        async () => await priv.get<AxiosResponse<ListIdpsResponse>>("/idp")
+    )();
+    const loginIdps = idpsRes.data.data.idps.map((idp) => ({
+        idpId: idp.idpId,
+        name: idp.name
+    })) as LoginFormIDP[];
+
     return (
         <>
             {isInvite && (
-                <div className="border rounded-md p-3 mb-4">
+                <div className="border rounded-md p-3 mb-4 bg-card">
                     <div className="flex flex-col items-center">
                         <Mail className="w-12 h-12 mb-4 text-primary" />
                         <h2 className="text-2xl font-bold mb-2 text-center">
@@ -48,7 +61,7 @@ export default async function Page(props: {
                 </div>
             )}
 
-            <DashboardLoginForm redirect={redirectUrl} />
+            <DashboardLoginForm redirect={redirectUrl} idps={loginIdps} />
 
             {(!signUpDisabled || isInvite) && (
                 <p className="text-center text-muted-foreground mt-4">

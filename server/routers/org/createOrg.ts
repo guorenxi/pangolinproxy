@@ -3,22 +3,26 @@ import { z } from "zod";
 import { db } from "@server/db";
 import { eq } from "drizzle-orm";
 import {
+    apiKeyOrg,
+    apiKeys,
     domains,
     Org,
     orgDomains,
     orgs,
     roleActions,
     roles,
-    userOrgs
-} from "@server/db/schema";
+    userOrgs,
+    users,
+    actions
+} from "@server/db";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import logger from "@server/logger";
-import { createAdminRole } from "@server/setup/ensureActions";
 import config from "@server/lib/config";
 import { fromError } from "zod-validation-error";
 import { defaultRoleAllowedActions } from "../role";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const createOrgSchema = z
     .object({
@@ -27,7 +31,24 @@ const createOrgSchema = z
     })
     .strict();
 
-const MAX_ORGS = 5;
+// const MAX_ORGS = 5;
+
+registry.registerPath({
+    method: "put",
+    path: "/org",
+    description: "Create a new organization",
+    tags: [OpenAPITags.Org],
+    request: {
+        body: {
+            content: {
+                "application/json": {
+                    schema: createOrgSchema
+                }
+            }
+        }
+    },
+    responses: {}
+});
 
 export async function createOrg(
     req: Request,
@@ -37,7 +58,7 @@ export async function createOrg(
     try {
         // should this be in a middleware?
         if (config.getRawConfig().flags?.disable_user_create_org) {
-            if (!req.user?.serverAdmin) {
+            if (req.user && !req.user?.serverAdmin) {
                 return next(
                     createHttpError(
                         HttpCode.FORBIDDEN,
@@ -53,16 +74,6 @@ export async function createOrg(
                 createHttpError(
                     HttpCode.BAD_REQUEST,
                     fromError(parsedBody.error).toString()
-                )
-            );
-        }
-
-        const userOrgIds = req.userOrgIds;
-        if (userOrgIds && userOrgIds.length > MAX_ORGS) {
-            return next(
-                createHttpError(
-                    HttpCode.FORBIDDEN,
-                    `Maximum number of organizations reached.`
                 )
             );
         }
@@ -110,12 +121,38 @@ export async function createOrg(
 
             org = newOrg[0];
 
-            const roleId = await createAdminRole(newOrg[0].orgId);
+            // Create admin role within the same transaction
+            const [insertedRole] = await trx
+                .insert(roles)
+                .values({
+                    orgId: newOrg[0].orgId,
+                    isAdmin: true,
+                    name: "Admin",
+                    description: "Admin role with the most permissions"
+                })
+                .returning({ roleId: roles.roleId });
 
-            if (!roleId) {
+            if (!insertedRole || !insertedRole.roleId) {
                 error = "Failed to create Admin role";
                 trx.rollback();
                 return;
+            }
+
+            const roleId = insertedRole.roleId;
+
+            // Get all actions and create role actions
+            const actionIds = await trx.select().from(actions).execute();
+            
+            if (actionIds.length > 0) {
+                await trx
+                    .insert(roleActions)
+                    .values(
+                        actionIds.map((action) => ({
+                            roleId,
+                            actionId: action.actionId,
+                            orgId: newOrg[0].orgId
+                        }))
+                    );
             }
 
             await trx.insert(orgDomains).values(
@@ -125,12 +162,33 @@ export async function createOrg(
                 }))
             );
 
-            await trx.insert(userOrgs).values({
-                userId: req.user!.userId,
-                orgId: newOrg[0].orgId,
-                roleId: roleId,
-                isOwner: true
-            });
+            if (req.user) {
+                await trx.insert(userOrgs).values({
+                    userId: req.user!.userId,
+                    orgId: newOrg[0].orgId,
+                    roleId: roleId,
+                    isOwner: true
+                });
+            } else {
+                // if org created by root api key, set the server admin as the owner
+                const [serverAdmin] = await trx
+                    .select()
+                    .from(users)
+                    .where(eq(users.serverAdmin, true));
+
+                if (!serverAdmin) {
+                    error = "Server admin not found";
+                    trx.rollback();
+                    return;
+                }
+
+                await trx.insert(userOrgs).values({
+                    userId: serverAdmin.userId,
+                    orgId: newOrg[0].orgId,
+                    roleId: roleId,
+                    isOwner: true
+                });
+            }
 
             const memberRole = await trx
                 .insert(roles)
@@ -148,13 +206,25 @@ export async function createOrg(
                     orgId
                 }))
             );
+
+            const rootApiKeys = await trx
+                .select()
+                .from(apiKeys)
+                .where(eq(apiKeys.isRoot, true));
+
+            for (const apiKey of rootApiKeys) {
+                await trx.insert(apiKeyOrg).values({
+                    apiKeyId: apiKey.apiKeyId,
+                    orgId: newOrg[0].orgId
+                });
+            }
         });
 
         if (!org) {
             return next(
                 createHttpError(
                     HttpCode.INTERNAL_SERVER_ERROR,
-                    "Failed to createo org"
+                    "Failed to create org"
                 )
             );
         }

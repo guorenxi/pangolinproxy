@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { resourceWhitelist, users } from "@server/db/schema"; // Assuming these are the correct tables
+import { resourceWhitelist, users } from "@server/db"; // Assuming these are the correct tables
 import { eq } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const getResourceWhitelistSchema = z
     .object({
@@ -30,6 +31,17 @@ async function queryWhitelist(resourceId: number) {
 export type GetResourceWhitelistResponse = {
     whitelist: NonNullable<Awaited<ReturnType<typeof queryWhitelist>>>;
 };
+
+registry.registerPath({
+    method: "get",
+    path: "/resource/{resourceId}/whitelist",
+    description: "Get the whitelist of emails for a specific resource.",
+    tags: [OpenAPITags.Resource],
+    request: {
+        params: getResourceWhitelistSchema
+    },
+    responses: {}
+});
 
 export async function getResourceWhitelist(
     req: Request,

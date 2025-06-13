@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@server/db";
-import { sites } from "@server/db/schema";
+import { sites } from "@server/db";
 import { eq } from "drizzle-orm";
 import response from "@server/lib/response";
 import HttpCode from "@server/types/HttpCode";
 import createHttpError from "http-errors";
 import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
+import { OpenAPITags, registry } from "@server/openApi";
 
 const updateSiteParamsSchema = z
     .object({
@@ -18,6 +19,7 @@ const updateSiteParamsSchema = z
 const updateSiteBodySchema = z
     .object({
         name: z.string().min(1).max(255).optional(),
+        dockerSocketEnabled: z.boolean().optional(),
         // subdomain: z
         //     .string()
         //     .min(1)
@@ -34,6 +36,25 @@ const updateSiteBodySchema = z
     .refine((data) => Object.keys(data).length > 0, {
         message: "At least one field must be provided for update"
     });
+
+registry.registerPath({
+    method: "post",
+    path: "/site/{siteId}",
+    description:
+        "Update a site.",
+    tags: [OpenAPITags.Site],
+    request: {
+        params: updateSiteParamsSchema,
+        body: {
+            content: {
+                "application/json": {
+                    schema: updateSiteBodySchema
+                }
+            }
+        }
+    },
+    responses: {}
+});
 
 export async function updateSite(
     req: Request,
